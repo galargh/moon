@@ -1,6 +1,8 @@
 mod utils;
 
 use moon_affected::{Affected, AffectedProjectState, AffectedTaskState};
+use moon_common::is_ci;
+use moon_common::path::WorkspaceRelativePathBuf;
 use moon_task::Target;
 use rustc_hash::FxHashSet;
 use starbase_utils::json::serde_json;
@@ -68,5 +70,161 @@ mod query_affected {
                 ..Default::default()
             }
         );
+    }
+
+    #[test]
+    fn status_filters_out_non_matching() {
+        let sandbox = create_query_sandbox();
+
+        change_files(&sandbox, ["basic/file.txt"]);
+
+        sandbox
+            .run_bin(|cmd| {
+                cmd.arg("query")
+                    .arg("affected")
+                    .args(["--status", "deleted"]);
+            })
+            .success()
+            .stdout("{}\n");
+    }
+
+    #[test]
+    fn status_includes_matching() {
+        let sandbox = create_query_sandbox();
+
+        change_files(&sandbox, ["basic/file.txt"]);
+
+        let status = if is_ci() { "added" } else { "untracked" };
+
+        let assert = sandbox.run_bin(|cmd| {
+            cmd.arg("query").arg("affected").args(["--status", status]);
+        });
+
+        let affected: Affected = serde_json::from_str(assert.stdout().trim()).unwrap();
+
+        assert!(affected.projects.contains_key("basic"));
+    }
+
+    #[test]
+    fn status_supports_multiple_values() {
+        let sandbox = create_query_sandbox();
+
+        change_files(&sandbox, ["basic/file.txt"]);
+
+        let assert = sandbox.run_bin(|cmd| {
+            cmd.arg("query")
+                .arg("affected")
+                .args(["--status", "added", "--status", "untracked"]);
+        });
+
+        let affected: Affected = serde_json::from_str(assert.stdout().trim()).unwrap();
+
+        assert!(affected.projects.contains_key("basic"));
+    }
+
+    #[test]
+    fn ci_excludes_tasks_disabled_in_ci() {
+        let sandbox = create_query_sandbox();
+
+        // basic:dev has preset: 'server' which sets run_in_ci: false
+        change_files(&sandbox, ["basic/file.txt"]);
+
+        let assert = sandbox.run_bin(|cmd| {
+            cmd.arg("query").arg("affected").arg("--ci");
+        });
+
+        let affected: Affected = serde_json::from_str(assert.stdout().trim()).unwrap();
+
+        let project = affected.projects.get("basic").unwrap();
+        assert!(
+            project
+                .files
+                .contains(&WorkspaceRelativePathBuf::from("basic/file.txt"))
+        );
+        assert!(!project.tasks.contains(&Target::parse("basic:dev").unwrap()));
+    }
+
+    #[test]
+    fn without_ci_includes_all_tasks() {
+        let sandbox = create_query_sandbox();
+
+        change_files(&sandbox, ["basic/file.txt"]);
+
+        let assert = sandbox.run_bin(|cmd| {
+            cmd.arg("query").arg("affected").arg("--ci").arg("false");
+        });
+
+        let affected: Affected = serde_json::from_str(assert.stdout().trim()).unwrap();
+
+        let project = affected.projects.get("basic").unwrap();
+        assert!(project.tasks.contains(&Target::parse("basic:dev").unwrap()));
+    }
+
+    #[test]
+    fn base_and_head_flags_accepted() {
+        let sandbox = create_query_sandbox();
+
+        change_branch(&sandbox, "branch");
+
+        sandbox
+            .run_bin(|cmd| {
+                cmd.arg("query")
+                    .arg("affected")
+                    .args(["--base", "master", "--head", "branch"]);
+            })
+            .success()
+            .stdout("{}\n");
+    }
+
+    #[test]
+    fn stdin_can_be_disabled() {
+        let sandbox = create_query_sandbox();
+
+        change_files(&sandbox, ["basic/file.txt"]);
+
+        let assert = sandbox.run_bin(|cmd| {
+            cmd.arg("query").arg("affected").args(["--stdin", "false"]);
+        });
+
+        let affected: Affected = serde_json::from_str(assert.stdout().trim()).unwrap();
+
+        assert!(affected.projects.contains_key("basic"));
+    }
+
+    #[test]
+    fn include_relations_by_default_includes_upstream() {
+        let sandbox = create_query_sandbox();
+
+        change_files(&sandbox, ["basic/file.txt"]);
+
+        let assert = sandbox.run_bin(|cmd| {
+            cmd.arg("query")
+                .arg("affected")
+                .args(["--upstream", "deep"]);
+        });
+
+        let affected: Affected = serde_json::from_str(assert.stdout().trim()).unwrap();
+
+        assert!(affected.projects.contains_key("no-config"));
+    }
+
+    #[test]
+    fn without_include_relations_excludes_upstream_only() {
+        let sandbox = create_query_sandbox();
+
+        change_files(&sandbox, ["basic/file.txt"]);
+
+        let assert = sandbox.run_bin(|cmd| {
+            cmd.arg("query").arg("affected").args([
+                "--upstream",
+                "deep",
+                "--include-relations",
+                "false",
+            ]);
+        });
+
+        let affected: Affected = serde_json::from_str(assert.stdout().trim()).unwrap();
+
+        assert!(!affected.projects.contains_key("no-config"));
     }
 }

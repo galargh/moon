@@ -29,5 +29,17 @@ This will output a map of projects and tasks as JSON. The output has the followi
 
 ### Options
 
+- `--base <rev>` - Base branch, commit, or revision to compare against. Defaults to
+  [`vcs.defaultBranch`](../../config/workspace#defaultbranch). Can also be set with `MOON_BASE`.
+- `--ci` - Evaluate the pipeline as if it's a CI environment. Respects task
+  [`runInCI`](../../config/project#runinci) options.
 - `--downstream` - Include downstream dependents. Supports "none" (default), "direct", "deep".
+- `--head <rev>` - Current branch, commit, or revision to compare with. Defaults to `HEAD`. Can also
+  be set with `MOON_HEAD`.
+- `-g`, `--include-relations` - Include graph relations for affected checks, instead of just changed
+  files. Defaults to `true` (unlike exec-based commands where it defaults to `false`). Can also be
+  set with `MOON_INCLUDE_RELATIONS`.
+- `--status <type>` - Filter files based on a changed status. Can be passed multiple times.
+  - Types: `all` (default), `added`, `deleted`, `modified`, `staged`, `unstaged`, `untracked`
+- `--stdin` - Accept changed files from stdin for affected checks.
 - `--upstream` - Include upstream dependencies. Supports "none" (default), "direct", "deep".
